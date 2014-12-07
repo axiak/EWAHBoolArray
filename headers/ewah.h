@@ -286,7 +286,7 @@ public:
      */
     void write(ostream & out, const bool savesizeinbits = true) const;
 
-    void writeAsStream(std::string & result) const;
+    void writeAsStream(std::string * result) const;
 
     /**
     * Size of the trailer in a stream output.
@@ -996,17 +996,17 @@ void EWAHBoolArray<uword>::write(ostream & out, const bool savesizeinbits) const
 }
 
 template<class uword>
-void EWAHBoolArray<uword>::writeAsStream(std::string & result) const {
+void EWAHBoolArray<uword>::writeAsStream(std::string * result) const {
     const uint64_t buffersize = buffer.size();
-    result.resize(buffersize + sizeof(buffersize) + sizeof(sizeinbits));
+    result->resize(buffersize + sizeof(buffersize) + sizeof(sizeinbits));
 
     if (buffersize > 0) {
-        result.append(reinterpret_cast<const char *>(&buffer[0]),
+        result->append(reinterpret_cast<const char *>(&buffer[0]),
             static_cast<size_t> (sizeof(uword) * buffersize));
     }
 
-    result.append(reinterpret_cast<const char *> (&buffersize), sizeof(buffersize));
-    result.append(reinterpret_cast<const char *> (&sizeinbits), sizeof(sizeinbits));
+    result->append(reinterpret_cast<const char *> (&buffersize), sizeof(buffersize));
+    result->append(reinterpret_cast<const char *> (&sizeinbits), sizeof(sizeinbits));
 }
 
 template<class uword>
