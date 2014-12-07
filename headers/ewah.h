@@ -10,10 +10,14 @@
 
 #include <algorithm>
 #include <vector>
+#include <sstream>
+#include <iostream>
+#include <memory>
 #include "ewahutil.h"
 #include "boolarray.h"
 
 #include "runninglengthword.h"
+
 
 using namespace std;
 
@@ -41,12 +45,16 @@ public:
         buffer(1, 0), sizeinbits(0), lastRLW(0) {
     }
 
-    static EWAHBoolArray bitmapOf(size_t n, ...) {
+    EWAHBoolArray(EWAHBoolArray&& rvalue) :
+        buffer(std::move(rvalue.buffer)), sizeinbits(rvalue.sizeinbits), lastRLW(rvalue.lastRLW) {
+    }
+
+    static EWAHBoolArray bitmapOf(uint64_t n, ...) {
     	EWAHBoolArray ans;
 		va_list vl;
 		va_start(vl, n);
-		for (size_t i = 0; i < n; i++) {
-            ans.set(static_cast<size_t>(va_arg(vl, int)));
+		for (uint64_t i = 0; i < n; i++) {
+            ans.set(static_cast<uint64_t>(va_arg(vl, int)));
 	    }
 	    va_end(vl);
 	    return ans;
@@ -60,22 +68,22 @@ public:
      *  (This implementation is based on zhenjl's Go version of JavaEWAH.)
      *
      */
-    bool get(const size_t pos) const {
-        if ( pos >= static_cast<size_t>(sizeinbits) )
+    bool get(const uint64_t pos) const {
+        if ( pos >= static_cast<uint64_t>(sizeinbits) )
                 return false;
-        const size_t wordpos = pos / wordinbits;
-        size_t WordChecked = 0;
+        const uint64_t wordpos = pos / wordinbits;
+        uint64_t WordChecked = 0;
         EWAHBoolArrayRawIterator<uword> j = raw_iterator();
         while(j.hasNext()) {
         	BufferedRunningLengthWord<uword> & rle = j.next();
-        	WordChecked += static_cast<size_t>( rle.getRunningLength());
+        	WordChecked += static_cast<uint64_t>( rle.getRunningLength());
         	if(wordpos < WordChecked)
         		return rle.getRunningBit();
         	if(wordpos < WordChecked + rle.getNumberOfLiteralWords() ) {
         		const uword w = j.dirtyWords()[wordpos - WordChecked];
                 return (w & (static_cast<uword>(1) << (pos % wordinbits))) != 0;
         	}
-        	WordChecked += static_cast<size_t>(rle.getNumberOfLiteralWords());
+        	WordChecked += static_cast<uint64_t>(rle.getNumberOfLiteralWords());
         }
         return false;
       }
@@ -96,7 +104,7 @@ public:
      * (In practice, if you set the bits in strictly increasing order, it
      * should always return true.)
      */
-    bool set(size_t i);
+    bool set(uint64_t i);
 
     /**
      * Transform into a string that presents a list of set bits.
@@ -162,7 +170,7 @@ public:
      * Retrieve the set bits. Can be much faster than iterating through
      * the set bits with an iterator.
      */
-    vector<size_t> toArray() const;
+    vector<uint64_t> toArray() const;
 
     /**
      * computes the logical and with another compressed bitmap
@@ -205,7 +213,7 @@ public:
      *
      * returns the number of words added (storage cost increase)
      */
-    inline size_t addWord(const uword newdata,
+    inline uint64_t addWord(const uword newdata,
             const uint32_t bitsthatmatter = 8 * sizeof(uword));
 
     inline void printout(ostream &o = cout) {
@@ -221,7 +229,7 @@ public:
      * Return the size in bits of this bitmap (this refers
      * to the uncompressed size in bits).
      */
-    inline size_t sizeInBits() const {
+    inline uint64_t sizeInBits() const {
         return sizeinbits;
     }
 
@@ -229,7 +237,7 @@ public:
      * set size in bits. This does not affect the compressed size. It
      * runs in constant time.
      */
-    inline void setSizeInBits(const size_t size) {
+    inline void setSizeInBits(const uint64_t size) {
         sizeinbits = size;
     }
 
@@ -237,7 +245,7 @@ public:
      * Return the size of the buffer in bytes. This
      * is equivalent to the storage cost, minus some overhead.
      */
-    inline size_t sizeInBytes() const {
+    inline uint64_t sizeInBytes() const {
         return buffer.size() * sizeof(uword);
     }
 
@@ -245,33 +253,31 @@ public:
      * same as addEmptyWord, but you can do several in one shot!
      * returns the number of words added (storage cost increase)
      */
-    size_t addStreamOfEmptyWords(const bool v, size_t number);
+    uint64_t addStreamOfEmptyWords(const bool v, uint64_t number);
 
     /**
      * add a stream of dirty words, returns the number of words added
      * (storage cost increase)
      */
-    size_t addStreamOfDirtyWords(const uword * v, const size_t number);
-
-
+    uint64_t addStreamOfDirtyWords(const uword * v, const uint64_t number);
 
     /**
      * make sure the size of the array is totalbits bits by padding with zeroes.
      * returns the number of words added (storage cost increase)
      */
-    size_t padWithZeroes(const size_t totalbits);
+    uint64_t padWithZeroes(const uint64_t totalbits);
 
     /**
      * Compute the size on disk assuming that it was saved using
      * the method "save".
      */
-    size_t sizeOnDisk() const;
+    uint64_t sizeOnDisk() const;
 
     /**
      * Save this bitmap to a stream. The file format is
      * | sizeinbits | buffer lenth | buffer content|
      * the sizeinbits part can be omitted if "savesizeinbits=false".
-     * Both sizeinbits and buffer length are saved using the size_t data
+     * Both sizeinbits and buffer length are saved using the uint64_t data
      * type which is typically a 32-bit unsigned integer for 32-bit CPUs
      * and a 64-bit unsigned integer for 64-bit CPUs.
      * Note that this format is machine-specific. Note also
@@ -279,6 +285,27 @@ public:
      * storage, you need to save this extra information elsewhere.
      */
     void write(ostream & out, const bool savesizeinbits = true) const;
+
+    void writeAsStream(std::string & result) const;
+
+    /**
+    * Size of the trailer in a stream output.
+    */
+    constexpr static uint64_t trailerLength() {
+        return 2 * sizeof(uint64_t);
+    }
+
+    /**
+    * The padding necessary to align to a word.
+    */
+    static uint64_t padToWord(uint64_t length) {
+        uint64_t missingbits = wordinbits - (length % wordinbits);
+        if (missingbits % wordinbits > 0) {
+            return missingbits;
+        } else {
+            return 0;
+        }
+    }
 
     /**
      * This only writes the content of the buffer (see write()) method.
@@ -289,7 +316,7 @@ public:
     /**
      * size (in words) of the underlying STL vector.
      */
-    size_t bufferSize() const {
+    uint64_t bufferSize() const {
         return buffer.size();
     }
 
@@ -301,10 +328,15 @@ public:
     void read(istream & in, const bool savesizeinbits = true);
 
     /**
+    * Read in stream format. I.e., the size in bits is at the end of the stream.
+    */
+    void readStream(const char * in, const uint64_t input_length);
+
+    /**
      * read the buffer from a stream, see method writeBuffer.
      * this is for advanced users.
      */
-    void readBuffer(istream & in, const size_t buffersize);
+    void readBuffer(istream & in, const uint64_t buffersize);
 
     bool operator==(const EWAHBoolArray & x) const;
 
@@ -350,18 +382,18 @@ public:
 
     /**
      * Convert to a list of positions of "set" bits.
-     * The recommender container is vector<size_t>.
+     * The recommender container is vector<uint64_t>.
      */
     template<class container>
-    void appendRowIDs(container & out, const size_t offset = 0) const;
+    void appendRowIDs(container & out, const uint64_t offset = 0) const;
 
     /**
      * Convert to a list of positions of "set" bits.
-     * The recommender container is vector<size_t>.
+     * The recommender container is vector<uint64_t>.
      * (alias for appendRowIDs).
      */
     template<class container>
-    void appendSetBits(container & out, const size_t offset = 0) const {
+    void appendSetBits(container & out, const uint64_t offset = 0) const {
         return appendRowIDs(out, offset);
     }
 
@@ -372,7 +404,7 @@ public:
      *
      * This is sometimes called the cardinality.
      */
-    size_t numberOfOnes() const;
+    uint64_t numberOfOnes() const;
 
     /**
      * Swap the content of this bitmap with another bitmap.
@@ -410,6 +442,13 @@ public:
         return *this;
     }
 
+    EWAHBoolArray & operator=(EWAHBoolArray && rvalue) {
+        buffer = std::move(rvalue.buffer);
+        sizeinbits = rvalue.sizeinbits;
+        lastRLW = rvalue.lastRLW;
+        return *this;
+    }
+
     /**
      * This is equivalent to the operator =. It is used
      * to keep in mind that assignment can be expensive.
@@ -438,23 +477,23 @@ private:
 
     // addStreamOfEmptyWords but does not return the cost increase,
     // does not update sizeinbits and does not check that number>0
-    void fastaddStreamOfEmptyWords(const bool v, size_t number);
+    void fastaddStreamOfEmptyWords(const bool v, uint64_t number);
 
     // private because does not increment the size in bits
     // returns the number of words added (storage cost increase)
-    inline size_t addLiteralWord(const uword newdata);
+    inline uint64_t addLiteralWord(const uword newdata);
 
     // private because does not increment the size in bits
     // returns the number of words added (storage cost increase)
-    size_t addEmptyWord(const bool v);
+    uint64_t addEmptyWord(const bool v);
     // this second version "might" be faster if you hate OOP.
     // in my tests, it turned out to be slower!
     // private because does not increment the size in bits
     //inline void addEmptyWordStaticCalls(bool v);
 
     vector<uword> buffer;
-    size_t sizeinbits;
-    size_t lastRLW;
+    uint64_t sizeinbits;
+    uint64_t lastRLW;
 };
 
 /**
@@ -509,7 +548,7 @@ private:
     EWAHBoolArrayIterator(const vector<uword> & parent);
     void readNewRunningLengthWord();
     friend class EWAHBoolArray<uword> ;
-    size_t pointer;
+    uint64_t pointer;
     const vector<uword> & myparent;
     uword compressedwords;
     uword literalwords;
@@ -527,16 +566,16 @@ public:
         wordinbits = sizeof(uword) * 8
     };
     typedef forward_iterator_tag iterator_category;
-    typedef size_t * pointer;
-    typedef size_t & reference_type;
-    typedef size_t value_type;
+    typedef uint64_t * pointer;
+    typedef uint64_t & reference_type;
+    typedef uint64_t value_type;
     typedef ptrdiff_t difference_type;
     typedef EWAHBoolArraySetBitForwardIterator<uword> type_of_iterator;
 
     /**
      * Provides the location of the set bit.
      */
-    size_t operator*() const {
+    uint64_t operator*() const {
         return currentrunoffset + offsetofpreviousrun;
     }
 
@@ -625,17 +664,17 @@ private:
     bool advanceToNextSetBit() {
         if (mpointer == buffer.size())
             return false;
-        if (currentrunoffset < static_cast<size_t> (rlw.getRunningLength()
+        if (currentrunoffset < static_cast<uint64_t> (rlw.getRunningLength()
                 * wordinbits)) {
             if (rlw.getRunningBit())
                 return true;// nothing to do
-            currentrunoffset = static_cast<size_t> (rlw.getRunningLength()
+            currentrunoffset = static_cast<uint64_t> (rlw.getRunningLength()
                     * wordinbits);//skipping
         }
         while (true) {
-            const size_t
+            const uint64_t
                     indexoflitword =
-                            static_cast<size_t> ((currentrunoffset
+                            static_cast<uint64_t> ((currentrunoffset
                                     - rlw.getRunningLength() * wordinbits)
                                     / wordinbits);
             if (indexoflitword >= rlw.getNumberOfLiteralWords()) {
@@ -657,7 +696,7 @@ private:
                                 + indexoflitword] >> tinwordpointer);
                 if (modcurrentword != 0) {
                     currentrunoffset
-                            += static_cast<size_t> (numberOfTrailingZeros(
+                            += static_cast<uint64_t> (numberOfTrailingZeros(
                                     modcurrentword));
                     return true;
                 } else {
@@ -684,7 +723,7 @@ private:
     bool advanceToNextRun() {
         offsetofpreviousrun += currentrunoffset;
         currentrunoffset = 0;
-        mpointer += static_cast<size_t> (1 + rlw.getNumberOfLiteralWords());
+        mpointer += static_cast<uint64_t> (1 + rlw.getNumberOfLiteralWords());
         if (mpointer < buffer.size()) {
             rlw.mydata = buffer[mpointer];
         } else {
@@ -694,7 +733,7 @@ private:
     }
 
     EWAHBoolArraySetBitForwardIterator(const vector<uword> & parent,
-            size_t startpointer = 0) :
+            uint64_t startpointer = 0) :
         buffer(parent), mpointer(startpointer), offsetofpreviousrun(0),
                 currentrunoffset(0), rlw(0) {
         if (mpointer < buffer.size()) {
@@ -704,9 +743,9 @@ private:
     }
 
     const vector<uword> & buffer;
-    size_t mpointer;
-    size_t offsetofpreviousrun;
-    size_t currentrunoffset;
+    uint64_t mpointer;
+    uint64_t offsetofpreviousrun;
+    uint64_t currentrunoffset;
     friend class EWAHBoolArray<uword> ;
     ConstRunningLengthWord<uword> rlw;
 };
@@ -721,34 +760,34 @@ public:
         totalliteral(0), totalcompressed(0), runningwordmarker(0),
                 maximumofrunningcounterreached(0) {
     }
-    size_t getCompressedSize() const {
+    uint64_t getCompressedSize() const {
         return totalliteral + runningwordmarker;
     }
-    size_t getUncompressedSize() const {
+    uint64_t getUncompressedSize() const {
         return totalliteral + totalcompressed;
     }
-    size_t getNumberOfDirtyWords() const {
+    uint64_t getNumberOfDirtyWords() const {
         return totalliteral;
     }
-    size_t getNumberOfCleanWords() const {
+    uint64_t getNumberOfCleanWords() const {
         return totalcompressed;
     }
-    size_t getNumberOfMarkers() const {
+    uint64_t getNumberOfMarkers() const {
         return runningwordmarker;
     }
-    size_t getOverRuns() const {
+    uint64_t getOverRuns() const {
         return maximumofrunningcounterreached;
     }
-    size_t totalliteral;
-    size_t totalcompressed;
-    size_t runningwordmarker;
-    size_t maximumofrunningcounterreached;
+    uint64_t totalliteral;
+    uint64_t totalcompressed;
+    uint64_t runningwordmarker;
+    uint64_t maximumofrunningcounterreached;
 };
 
 template<class uword>
-bool EWAHBoolArray<uword>::set(size_t i) {
+bool EWAHBoolArray<uword>::set(uint64_t i) {
     if(i < sizeinbits) return false;
-    const size_t dist = (i + wordinbits) / wordinbits - (sizeinbits
+    const uint64_t dist = (i + wordinbits) / wordinbits - (sizeinbits
             + wordinbits - 1) / wordinbits;
     sizeinbits = i + 1;
     if (dist > 0) {// easy
@@ -784,7 +823,7 @@ bool EWAHBoolArray<uword>::set(size_t i) {
 
 template<class uword>
 void EWAHBoolArray<uword>::inplace_logicalnot() {
-    size_t pointer(0), lastrlw(0);
+    uint64_t pointer(0), lastrlw(0);
     while (pointer < buffer.size()) {
         RunningLengthWord<uword> rlw(buffer[pointer]);
         lastrlw = pointer;// we save this up
@@ -793,7 +832,7 @@ void EWAHBoolArray<uword>::inplace_logicalnot() {
         else
             rlw.setRunningBit(true);
         ++pointer;
-        for (size_t k = 0; k < rlw.getNumberOfLiteralWords(); ++k) {
+        for (uint64_t k = 0; k < rlw.getNumberOfLiteralWords(); ++k) {
             buffer[pointer] = static_cast<uword>(~buffer[pointer]);
             ++pointer;
         }
@@ -813,16 +852,16 @@ void EWAHBoolArray<uword>::inplace_logicalnot() {
 }
 
 template<class uword>
-size_t EWAHBoolArray<uword>::numberOfOnes() const {
-    size_t tot(0);
-    size_t pointer(0);
+uint64_t EWAHBoolArray<uword>::numberOfOnes() const {
+    uint64_t tot(0);
+    uint64_t pointer(0);
     while (pointer < buffer.size()) {
         ConstRunningLengthWord<uword> rlw(buffer[pointer]);
         if (rlw.getRunningBit()) {
-            tot += static_cast<size_t>(rlw.getRunningLength() * wordinbits);
+            tot += static_cast<uint64_t>(rlw.getRunningLength() * wordinbits);
         }
         ++pointer;
-        for (size_t k = 0; k < rlw.getNumberOfLiteralWords(); ++k) {
+        for (uint64_t k = 0; k < rlw.getNumberOfLiteralWords(); ++k) {
             assert(countOnes(buffer[pointer]) < 64);
             tot += countOnes(buffer[pointer]);
             ++pointer;
@@ -832,22 +871,22 @@ size_t EWAHBoolArray<uword>::numberOfOnes() const {
 }
 
 template<class uword>
-vector<size_t> EWAHBoolArray<uword>::toArray() const {
-    vector < size_t > ans;
-    size_t pos(0);
-    size_t pointer(0);
+vector<uint64_t> EWAHBoolArray<uword>::toArray() const {
+    vector < uint64_t > ans;
+    uint64_t pos(0);
+    uint64_t pointer(0);
     while (pointer < buffer.size()) {
         ConstRunningLengthWord<uword> rlw(buffer[pointer]);
         if (rlw.getRunningBit()) {
-            for (size_t k = 0; k < rlw.getRunningLength() * wordinbits; ++k, ++pos) {
+            for (uint64_t k = 0; k < rlw.getRunningLength() * wordinbits; ++k, ++pos) {
                 ans.push_back(pos);
             }
         } else {
-            pos += static_cast<size_t>(rlw.getRunningLength() * wordinbits);
+            pos += static_cast<uint64_t>(rlw.getRunningLength() * wordinbits);
         }
         ++pointer;
         const bool usetrailing = true; //optimization
-        for (size_t k = 0; k < rlw.getNumberOfLiteralWords(); ++k) {
+        for (uint64_t k = 0; k < rlw.getNumberOfLiteralWords(); ++k) {
             if (usetrailing) {
                 uword myword = buffer[pointer];
                 while (myword != 0) {
@@ -881,7 +920,7 @@ void EWAHBoolArray<uword>::logicalnot(EWAHBoolArray & x) const {
                     rlw.getRunningLength());
             if (rlw.getNumberOfLiteralWords() > 0) {
                 const uword * dw = i.dirtyWords();
-                for (size_t k = 0; k < rlw.getNumberOfLiteralWords(); ++k) {
+                for (uint64_t k = 0; k < rlw.getNumberOfLiteralWords(); ++k) {
                     x.addLiteralWord(~dw[k]);
                 }
             }
@@ -903,7 +942,7 @@ void EWAHBoolArray<uword>::logicalnot(EWAHBoolArray & x) const {
             x.addStreamOfEmptyWords(!rlw.getRunningBit(),
                                 rlw.getRunningLength());
             const uword * dw = i.dirtyWords();
-            for (size_t k = 0; k < rlw.getNumberOfLiteralWords()  - 1; ++k) {
+            for (uint64_t k = 0; k < rlw.getNumberOfLiteralWords()  - 1; ++k) {
                                 x.addLiteralWord(~dw[k]);
             }
             const uword maskbogus = (this->sizeinbits % wordinbits != 0) ? (static_cast<uword>(1) << (this->sizeinbits % wordinbits)) - 1 : ~static_cast<uword>(0);
@@ -915,7 +954,7 @@ void EWAHBoolArray<uword>::logicalnot(EWAHBoolArray & x) const {
 }
 
 template<class uword>
-size_t EWAHBoolArray<uword>::addWord(const uword newdata,
+uint64_t EWAHBoolArray<uword>::addWord(const uword newdata,
         const uint32_t bitsthatmatter) {
     sizeinbits += bitsthatmatter;
     if (newdata == 0) {
@@ -936,23 +975,38 @@ inline void EWAHBoolArray<uword>::writeBuffer(ostream & out) const {
 
 template<class uword>
 inline void EWAHBoolArray<uword>::readBuffer(istream & in,
-        const size_t buffersize) {
+        const uint64_t buffersize) {
     buffer.resize(buffersize);
     if (buffersize > 0)
         in.read(reinterpret_cast<char *> (&buffer[0]),
                 sizeof(uword) * buffersize);
 }
 
+
 template<class uword>
 void EWAHBoolArray<uword>::write(ostream & out, const bool savesizeinbits) const {
     if (savesizeinbits)
         out.write(reinterpret_cast<const char *> (&sizeinbits),
                 sizeof(sizeinbits));
-    const size_t buffersize = buffer.size();
+    const uint64_t buffersize = buffer.size();
     out.write(reinterpret_cast<const char *> (&buffersize), sizeof(buffersize));
     if (buffersize > 0)
         out.write(reinterpret_cast<const char *> (&buffer[0]),
                 static_cast<streamsize> (sizeof(uword) * buffersize));
+}
+
+template<class uword>
+void EWAHBoolArray<uword>::writeAsStream(std::string & result) const {
+    const uint64_t buffersize = buffer.size();
+    result.resize(buffersize + sizeof(buffersize) + sizeof(sizeinbits));
+
+    if (buffersize > 0) {
+        result.append(reinterpret_cast<const char *>(&buffer[0]),
+            static_cast<size_t> (sizeof(uword) * buffersize));
+    }
+
+    result.append(reinterpret_cast<const char *> (&buffersize), sizeof(buffersize));
+    result.append(reinterpret_cast<const char *> (&sizeinbits), sizeof(sizeinbits));
 }
 
 template<class uword>
@@ -961,7 +1015,7 @@ void EWAHBoolArray<uword>::read(istream & in, const bool savesizeinbits) {
         in.read(reinterpret_cast<char *> (&sizeinbits), sizeof(sizeinbits));
     else
         sizeinbits = 0;
-    size_t buffersize(0);
+    uint64_t buffersize(0);
     in.read(reinterpret_cast<char *> (&buffersize), sizeof(buffersize));
     buffer.resize(buffersize);
     if (buffersize > 0)
@@ -970,7 +1024,28 @@ void EWAHBoolArray<uword>::read(istream & in, const bool savesizeinbits) {
 }
 
 template<class uword>
-size_t EWAHBoolArray<uword>::addLiteralWord(const uword newdata) {
+void EWAHBoolArray<uword>::readStream(const char * in, const uint64_t input_length) {
+    uint64_t offset = input_length - sizeof(uint64_t);
+    
+    sizeinbits = *reinterpret_cast<const uint64_t *>(in + offset);
+    uint64_t buffersize;
+    
+    offset -= sizeof(uint64_t);
+
+    buffersize = *reinterpret_cast<const uint64_t *>(in + offset);
+
+    buffer.resize(buffersize);
+    if (buffersize > 0) {
+        std::copy(
+            reinterpret_cast<const uword *>(in),
+            reinterpret_cast<const uword *>(in + buffersize),
+            buffer.begin()
+        );
+    }
+}
+
+template<class uword>
+uint64_t EWAHBoolArray<uword>::addLiteralWord(const uword newdata) {
     RunningLengthWord<uword> lastRunningLengthWord(buffer[lastRLW]);
     uword numbersofar = lastRunningLengthWord.getNumberOfLiteralWords();
     if (numbersofar >= RunningLengthWord<uword>::largestliteralcount) {//0x7FFF) {
@@ -989,23 +1064,23 @@ size_t EWAHBoolArray<uword>::addLiteralWord(const uword newdata) {
 }
 
 template<class uword>
-size_t EWAHBoolArray<uword>::padWithZeroes(const size_t totalbits) {
-	size_t wordsadded = 0;
+uint64_t EWAHBoolArray<uword>::padWithZeroes(const uint64_t totalbits) {
+	uint64_t wordsadded = 0;
     assert(totalbits >= sizeinbits);
 	if ( totalbits <= sizeinbits )
 		return wordsadded;
 
-    size_t missingbits = totalbits - sizeinbits;
+    uint64_t missingbits = totalbits - sizeinbits;
 
 
 	RunningLengthWord<uword> rlw( buffer[lastRLW] );
 	if ( rlw.getNumberOfLiteralWords() > 0 )
 	{
 		// Consume trailing zeroes of trailing literal word (past sizeinbits)
-		size_t remain = sizeinbits % wordinbits;
+		uint64_t remain = sizeinbits % wordinbits;
 		if ( remain > 0 )	// Is last word partial?
 		{
-			size_t avail = wordinbits - remain;
+			uint64_t avail = wordinbits - remain;
 			if ( avail > 0 )
 			{
 				if ( missingbits > avail ) {
@@ -1020,7 +1095,7 @@ size_t EWAHBoolArray<uword>::padWithZeroes(const size_t totalbits) {
 
 	if ( missingbits > 0 )
 	{
-		size_t wordstoadd = missingbits / wordinbits;
+		uint64_t wordstoadd = missingbits / wordinbits;
 		if ( (missingbits % wordinbits) != 0)
 			++wordstoadd;
 
@@ -1061,7 +1136,7 @@ public:
     BufferedRunningLengthWord<uword> & next() {
         assert(pointer < myparent->size());
         rlw.read((*myparent)[pointer]);
-        pointer = static_cast<size_t> (pointer + rlw.getNumberOfLiteralWords()
+        pointer = static_cast<uint64_t> (pointer + rlw.getNumberOfLiteralWords()
                 + 1);
         return rlw;
     }
@@ -1070,7 +1145,7 @@ public:
         assert(pointer > 0);
         assert(pointer >= rlw.getNumberOfLiteralWords());
         return &(myparent->at(
-                static_cast<size_t> (pointer - rlw.getNumberOfLiteralWords())));
+                static_cast<uint64_t> (pointer - rlw.getNumberOfLiteralWords())));
     }
 
     EWAHBoolArrayRawIterator & operator=(const EWAHBoolArrayRawIterator & other) {
@@ -1083,7 +1158,7 @@ public:
     enum {
         verbose = false
     };
-    size_t pointer;
+    uint64_t pointer;
     const vector<uword> * myparent;
     BufferedRunningLengthWord<uword> rlw;
 private:
@@ -1107,7 +1182,7 @@ bool EWAHBoolArray<uword>::operator==(const EWAHBoolArray & x) const {
         return false;
     if (buffer.size() != x.buffer.size())
         return false;
-    for (size_t k = 0; k < buffer.size(); ++k)
+    for (uint64_t k = 0; k < buffer.size(); ++k)
         if (buffer[k] != x.buffer[k])
             return false;
     return true;
@@ -1116,7 +1191,7 @@ bool EWAHBoolArray<uword>::operator==(const EWAHBoolArray & x) const {
 template<class uword>
 void EWAHBoolArray<uword>::swap(EWAHBoolArray & x) {
     buffer.swap(x.buffer);
-    size_t tmp = x.sizeinbits;
+    uint64_t tmp = x.sizeinbits;
     x.sizeinbits = sizeinbits;
     sizeinbits = tmp;
     tmp = x.lastRLW;
@@ -1188,7 +1263,7 @@ template<class uword>
 BoolArray<uword> EWAHBoolArray<uword>::toBoolArray() const {
     BoolArray<uword> ans(sizeinbits);
     EWAHBoolArrayIterator<uword> i = uncompress();
-    size_t counter = 0;
+    uint64_t counter = 0;
     while (i.hasNext()) {
         ans.setWord(counter++, i.next());
     }
@@ -1197,20 +1272,20 @@ BoolArray<uword> EWAHBoolArray<uword>::toBoolArray() const {
 
 template<class uword>
 template<class container>
-void EWAHBoolArray<uword>::appendRowIDs(container & out, const size_t offset) const {
-    size_t pointer(0);
-    size_t currentoffset(offset);
+void EWAHBoolArray<uword>::appendRowIDs(container & out, const uint64_t offset) const {
+    uint64_t pointer(0);
+    uint64_t currentoffset(offset);
     if (RESERVEMEMORY)
         out.reserve(buffer.size() + 64);// trading memory for speed.
     while (pointer < buffer.size()) {
         ConstRunningLengthWord<uword> rlw(buffer[pointer]);
         if (rlw.getRunningBit()) {
-            for (size_t x = 0; x < static_cast<size_t> (rlw.getRunningLength()
+            for (uint64_t x = 0; x < static_cast<uint64_t> (rlw.getRunningLength()
                     * wordinbits); ++x) {
                 out.push_back(currentoffset + x);
             }
         }
-        currentoffset = static_cast<size_t> (currentoffset
+        currentoffset = static_cast<uint64_t> (currentoffset
                 + rlw.getRunningLength() * wordinbits);
         ++pointer;
         for (uword k = 0; k < rlw.getNumberOfLiteralWords(); ++k) {
@@ -1244,11 +1319,11 @@ bool EWAHBoolArray<uword>::operator!=(const BoolArray<uword> & x) const {
 }
 
 template<class uword>
-size_t EWAHBoolArray<uword>::addStreamOfEmptyWords(const bool v, size_t number) {
+uint64_t EWAHBoolArray<uword>::addStreamOfEmptyWords(const bool v, uint64_t number) {
     if (number == 0)
         return 0;
     sizeinbits += number * wordinbits;
-    size_t wordsadded = 0;
+    uint64_t wordsadded = 0;
     if ((RunningLengthWord<uword>::getRunningBit(buffer[lastRLW]) != v)
             && (RunningLengthWord<uword>::size(buffer[lastRLW]) == 0)) {
         RunningLengthWord<uword>::setRunningBit(buffer[lastRLW], v);
@@ -1267,14 +1342,14 @@ size_t EWAHBoolArray<uword>::addStreamOfEmptyWords(const bool v, size_t number) 
     const uword
             whatwecanadd =
                     number
-                            < static_cast<size_t> (RunningLengthWord<uword>::largestrunninglengthcount
+                            < static_cast<uint64_t> (RunningLengthWord<uword>::largestrunninglengthcount
                                     - runlen) ? static_cast<uword> (number)
                             : static_cast<uword> (RunningLengthWord<uword>::largestrunninglengthcount
                                     - runlen);
     RunningLengthWord<uword>::setRunningLength(buffer[lastRLW],
             static_cast<uword> (runlen + whatwecanadd));
 
-    number -= static_cast<size_t> (whatwecanadd);
+    number -= static_cast<uint64_t> (whatwecanadd);
     while (number >= RunningLengthWord<uword>::largestrunninglengthcount) {
         buffer.push_back(0);
         ++wordsadded;
@@ -1284,7 +1359,7 @@ size_t EWAHBoolArray<uword>::addStreamOfEmptyWords(const bool v, size_t number) 
         RunningLengthWord<uword>::setRunningLength(buffer[lastRLW],
                 RunningLengthWord<uword>::largestrunninglengthcount);
         number
-                -= static_cast<size_t> (RunningLengthWord<uword>::largestrunninglengthcount);
+                -= static_cast<uint64_t> (RunningLengthWord<uword>::largestrunninglengthcount);
     }
     if (number > 0) {
         buffer.push_back(0);
@@ -1300,7 +1375,7 @@ size_t EWAHBoolArray<uword>::addStreamOfEmptyWords(const bool v, size_t number) 
 
 
 template<class uword>
-void EWAHBoolArray<uword>::fastaddStreamOfEmptyWords(const bool v, size_t number) {
+void EWAHBoolArray<uword>::fastaddStreamOfEmptyWords(const bool v, uint64_t number) {
     if ((RunningLengthWord<uword>::getRunningBit(buffer[lastRLW]) != v)
             && (RunningLengthWord<uword>::size(buffer[lastRLW]) == 0)) {
         RunningLengthWord<uword>::setRunningBit(buffer[lastRLW], v);
@@ -1318,14 +1393,14 @@ void EWAHBoolArray<uword>::fastaddStreamOfEmptyWords(const bool v, size_t number
     const uword
             whatwecanadd =
                     number
-                            < static_cast<size_t> (RunningLengthWord<uword>::largestrunninglengthcount
+                            < static_cast<uint64_t> (RunningLengthWord<uword>::largestrunninglengthcount
                                     - runlen) ? static_cast<uword> (number)
                             : static_cast<uword> (RunningLengthWord<uword>::largestrunninglengthcount
                                     - runlen);
     RunningLengthWord<uword>::setRunningLength(buffer[lastRLW],
             static_cast<uword> (runlen + whatwecanadd));
 
-    number -= static_cast<size_t> (whatwecanadd);
+    number -= static_cast<uint64_t> (whatwecanadd);
     while (number >= RunningLengthWord<uword>::largestrunninglengthcount) {
         buffer.push_back(0);
         lastRLW = buffer.size() - 1;
@@ -1334,7 +1409,7 @@ void EWAHBoolArray<uword>::fastaddStreamOfEmptyWords(const bool v, size_t number
         RunningLengthWord<uword>::setRunningLength(buffer[lastRLW],
                 RunningLengthWord<uword>::largestrunninglengthcount);
         number
-                -= static_cast<size_t> (RunningLengthWord<uword>::largestrunninglengthcount);
+                -= static_cast<uint64_t> (RunningLengthWord<uword>::largestrunninglengthcount);
     }
     if (number > 0) {
         buffer.push_back(0);
@@ -1348,8 +1423,8 @@ void EWAHBoolArray<uword>::fastaddStreamOfEmptyWords(const bool v, size_t number
 
 
 template<class uword>
-size_t EWAHBoolArray<uword>::addStreamOfDirtyWords(const uword * v,
-        const size_t number) {
+uint64_t EWAHBoolArray<uword>::addStreamOfDirtyWords(const uword * v,
+        const uint64_t number) {
     if (number == 0)
         return 0;
     RunningLengthWord<uword> lastRunningLengthWord(buffer[lastRLW]);
@@ -1358,12 +1433,12 @@ size_t EWAHBoolArray<uword>::addStreamOfDirtyWords(const uword * v,
     assert(
             RunningLengthWord<uword>::largestliteralcount
                     >= NumberOfLiteralWords);
-    const size_t
+    const uint64_t
             whatwecanadd =
                     number
                             < static_cast<uword> (RunningLengthWord<uword>::largestliteralcount
                                     - NumberOfLiteralWords) ? number
-                            : static_cast<size_t> (RunningLengthWord<uword>::largestliteralcount
+                            : static_cast<uint64_t> (RunningLengthWord<uword>::largestliteralcount
                                     - NumberOfLiteralWords);//0x7FFF-NumberOfLiteralWords);
     assert(NumberOfLiteralWords + whatwecanadd >= NumberOfLiteralWords);
     assert(
@@ -1374,13 +1449,13 @@ size_t EWAHBoolArray<uword>::addStreamOfDirtyWords(const uword * v,
     assert(
             lastRunningLengthWord.getNumberOfLiteralWords()
                     == NumberOfLiteralWords + whatwecanadd);
-    const size_t leftovernumber = number - whatwecanadd;
+    const uint64_t leftovernumber = number - whatwecanadd;
     // add the dirty words...
-    const size_t oldsize(buffer.size());
+    const uint64_t oldsize(buffer.size());
     buffer.resize(oldsize + whatwecanadd);
     memcpy(&buffer[oldsize], v, whatwecanadd * sizeof(uword));
 	sizeinbits += whatwecanadd * wordinbits;
-    size_t wordsadded(whatwecanadd);
+    uint64_t wordsadded(whatwecanadd);
     if (leftovernumber > 0) {
         //add
         buffer.push_back(0);
@@ -1395,7 +1470,7 @@ size_t EWAHBoolArray<uword>::addStreamOfDirtyWords(const uword * v,
 
 
 template<class uword>
-size_t EWAHBoolArray<uword>::addEmptyWord(const bool v) {
+uint64_t EWAHBoolArray<uword>::addEmptyWord(const bool v) {
     RunningLengthWord<uword> lastRunningLengthWord(buffer[lastRLW]);
     const bool noliteralword = (lastRunningLengthWord.getNumberOfLiteralWords()
             == 0);
@@ -1455,16 +1530,16 @@ void EWAHBoolArray<uword>::logicalor(EWAHBoolArray &a, EWAHBoolArray &container)
             if (predatorrl >= preyrl) {
                 const uword tobediscarded = preyrl;
                 container.addStreamOfEmptyWords(predator.getRunningBit(),
-                        static_cast<size_t> (tobediscarded));
+                        static_cast<uint64_t> (tobediscarded));
             } else {
                 const uword tobediscarded = predatorrl;
                 container.addStreamOfEmptyWords(predator.getRunningBit(),
-                        static_cast<size_t> (tobediscarded));
+                        static_cast<uint64_t> (tobediscarded));
                 if (preyrl - tobediscarded > 0) {
                     const uword * dw_predator(
                             i_is_prey ? j.dirtyWords() : i.dirtyWords());
                     container.addStreamOfDirtyWords(dw_predator,
-                            static_cast<size_t> (preyrl - tobediscarded));
+                            static_cast<uint64_t> (preyrl - tobediscarded));
                 }
             }
             predator.discardFirstWords(preyrl);
@@ -1474,7 +1549,7 @@ void EWAHBoolArray<uword>::logicalor(EWAHBoolArray &a, EWAHBoolArray &container)
             const uword preyrl(prey.getRunningLength());
             predator.discardFirstWords(preyrl);
             prey.discardFirstWords(preyrl);
-            container.addStreamOfEmptyWords(1, static_cast<size_t> (preyrl));
+            container.addStreamOfEmptyWords(1, static_cast<uint64_t> (preyrl));
         }
         const uword predatorrl(predator.getRunningLength());
         if (predatorrl > 0) {
@@ -1487,7 +1562,7 @@ void EWAHBoolArray<uword>::logicalor(EWAHBoolArray &a, EWAHBoolArray &container)
                     const uword * dw_prey(
                             i_is_prey ? i.dirtyWords() : j.dirtyWords());
                     container.addStreamOfDirtyWords(dw_prey,
-                            static_cast<size_t> (tobediscarded));
+                            static_cast<uint64_t> (tobediscarded));
                     predator.discardFirstWords(tobediscarded);
                     prey.discardFirstWords(tobediscarded);
                 }
@@ -1499,7 +1574,7 @@ void EWAHBoolArray<uword>::logicalor(EWAHBoolArray &a, EWAHBoolArray &container)
                 predator.discardFirstWords(tobediscarded);
                 prey.discardFirstWords(tobediscarded);
                 container.addStreamOfEmptyWords(1,
-                        static_cast<size_t> (tobediscarded));
+                        static_cast<uint64_t> (tobediscarded));
             }
         }
         assert(prey.getRunningLength() == 0);
@@ -1554,23 +1629,23 @@ void EWAHBoolArray<uword>::logicalxor(EWAHBoolArray &a, EWAHBoolArray &container
 			const uword tobediscarded = preyrl;
 			container.addStreamOfEmptyWords(
 					prey.getRunningBit() ^ predator.getRunningBit(),
-					static_cast<size_t> (tobediscarded));
+					static_cast<uint64_t> (tobediscarded));
 		} else {
 			assert(predatorrl<preyrl);
 			const uword tobediscarded = predatorrl;
 			if(predatorrl>0) {
 				container.addStreamOfEmptyWords(
 					prey.getRunningBit() ^ predator.getRunningBit(),
-					static_cast<size_t> (predatorrl));
+					static_cast<uint64_t> (predatorrl));
 			}
 			if (preyrl - tobediscarded > 0) {
 				const uword * dw_predator(
 						i_is_prey ? j.dirtyWords() : i.dirtyWords());
 				if (prey.getRunningBit() == 0) {
 					container.addStreamOfDirtyWords(dw_predator,
-							static_cast<size_t> (preyrl - tobediscarded));
+							static_cast<uint64_t> (preyrl - tobediscarded));
 				} else {
-					for(size_t x = 0; x<static_cast<size_t> (preyrl - tobediscarded);++x)
+					for(uint64_t x = 0; x<static_cast<uint64_t> (preyrl - tobediscarded);++x)
 								container.addWord(static_cast<uword>(~dw_predator[x]));
 				}
 			}
@@ -1590,9 +1665,9 @@ void EWAHBoolArray<uword>::logicalxor(EWAHBoolArray &a, EWAHBoolArray &container
 						i_is_prey ? i.dirtyWords() : j.dirtyWords());
 				if (predator.getRunningBit() == 0) {
 					container.addStreamOfDirtyWords(dw_prey,
-							static_cast<size_t> (tobediscarded));
+							static_cast<uint64_t> (tobediscarded));
 				} else {
-					for(size_t x = 0; x<tobediscarded;++x)
+					for(uint64_t x = 0; x<tobediscarded;++x)
 						container.addWord(static_cast<uword>(~dw_prey[x]));
 				}
 				predator.discardFirstWords(tobediscarded);
@@ -1654,7 +1729,7 @@ void EWAHBoolArray<uword>::logicaland(EWAHBoolArray &a,
             const uword preyrl(prey.getRunningLength());
             predator.discardFirstWords(preyrl);
             prey.discardFirstWords(preyrl);
-            container.addStreamOfEmptyWords(0, static_cast<size_t> (preyrl));
+            container.addStreamOfEmptyWords(0, static_cast<uint64_t> (preyrl));
         } else {
             // we have a stream of 1x11
             const uword predatorrl(predator.getRunningLength());
@@ -1662,12 +1737,12 @@ void EWAHBoolArray<uword>::logicaland(EWAHBoolArray &a,
             const uword tobediscarded = (predatorrl >= preyrl) ? preyrl
                     : predatorrl;
             container.addStreamOfEmptyWords(predator.getRunningBit(),
-                    static_cast<size_t> (tobediscarded));
+                    static_cast<uint64_t> (tobediscarded));
             if (preyrl - tobediscarded > 0) {
                 const uword * dw_predator(
                         i_is_prey ? j.dirtyWords() : i.dirtyWords());
                 container.addStreamOfDirtyWords(dw_predator,
-                        static_cast<size_t> (preyrl - tobediscarded));
+                        static_cast<uint64_t> (preyrl - tobediscarded));
             }
             predator.discardFirstWords(preyrl);
             prey.discardFirstWords(preyrl);
@@ -1682,7 +1757,7 @@ void EWAHBoolArray<uword>::logicaland(EWAHBoolArray &a,
                 predator.discardFirstWords(tobediscarded);
                 prey.discardFirstWords(tobediscarded);
                 container.addStreamOfEmptyWords(0,
-                        static_cast<size_t> (tobediscarded));
+                        static_cast<uint64_t> (tobediscarded));
             } else {
                 const uword nbre_dirty_prey(prey.getNumberOfLiteralWords());
                 const uword tobediscarded =
@@ -1692,7 +1767,7 @@ void EWAHBoolArray<uword>::logicaland(EWAHBoolArray &a,
                     const uword * dw_prey(
                             i_is_prey ? i.dirtyWords() : j.dirtyWords());
                     container.addStreamOfDirtyWords(dw_prey,
-                            static_cast<size_t> (tobediscarded));
+                            static_cast<uint64_t> (tobediscarded));
                     predator.discardFirstWords(tobediscarded);
                     prey.discardFirstWords(tobediscarded);
                 }
@@ -1745,7 +1820,7 @@ template<class uword>
 void EWAHBoolArray<uword>::debugprintout() const {
     cout << "==printing out EWAHBoolArray==" << endl;
     cout << "Number of compressed words: " << buffer.size() << endl;
-    size_t pointer = 0;
+    uint64_t pointer = 0;
     while (pointer < buffer.size()) {
         ConstRunningLengthWord<uword> rlw(buffer[pointer]);
         bool b = rlw.getRunningBit();
@@ -1764,8 +1839,8 @@ void EWAHBoolArray<uword>::debugprintout() const {
 }
 
 template<class uword>
-size_t EWAHBoolArray<uword>::sizeOnDisk() const {
-    return sizeof(sizeinbits) + sizeof(size_t) + sizeof(uword) * buffer.size();
+uint64_t EWAHBoolArray<uword>::sizeOnDisk() const {
+    return sizeof(sizeinbits) + sizeof(uint64_t) + sizeof(uword) * buffer.size();
 }
 
 #endif

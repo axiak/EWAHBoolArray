@@ -148,21 +148,21 @@ public:
     }
 
 
-    static const uint32_t runninglengthbits = sizeof(uword) * 4;
-    static const uint32_t literalbits = sizeof(uword) * 8 - 1 - runninglengthbits;
-    static const uword largestliteralcount = (static_cast<uword> (1)
+    static constexpr uint32_t runninglengthbits = sizeof(uword) * 4;
+    static constexpr uint32_t literalbits = sizeof(uword) * 8 - 1 - runninglengthbits;
+    static constexpr uword largestliteralcount = (static_cast<uword> (1)
             << literalbits) - 1;
-    static const uword largestrunninglengthcount = (static_cast<uword> (1)
+    static constexpr uword largestrunninglengthcount = (static_cast<uword> (1)
             << runninglengthbits) - 1;
-    static const uword shiftedlargestrunninglengthcount =
+    static constexpr uword shiftedlargestrunninglengthcount =
             largestrunninglengthcount << 1;
-    static const uword notshiftedlargestrunninglengthcount =
+    static constexpr uword notshiftedlargestrunninglengthcount =
             static_cast<uword> (~shiftedlargestrunninglengthcount);
-    static const uword runninglengthplusrunningbit = (static_cast<uword> (1)
+    static constexpr uword runninglengthplusrunningbit = (static_cast<uword> (1)
             << (runninglengthbits + 1)) - 1;
-    static const uword notrunninglengthplusrunningbit =
+    static constexpr uword notrunninglengthplusrunningbit =
             static_cast<uword> (~runninglengthplusrunningbit);
-    static const uword notlargestrunninglengthcount =
+    static constexpr uword notlargestrunninglengthcount =
             static_cast<uword> (~largestrunninglengthcount);
 
     uword & mydata;
