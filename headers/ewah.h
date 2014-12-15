@@ -181,8 +181,7 @@ public:
     /**
     * Iterate over the set bits.
     */
-    template<typename Function>
-    void iterateSetBits(Function function) const;
+    void iterateSetBits(offsetType limit, std::function<void(offsetType)> callable) const;
 
     /**
      * computes the logical and with another compressed bitmap
@@ -897,7 +896,7 @@ offsetType EWAHBoolArray<uword>::numberOfOnes() const {
 template<class uword>
 vector<offsetType> EWAHBoolArray<uword>::toArray() const {
     vector < offsetType > ans;
-    iterateSetBits([&ans] (offsetType pos) {
+    iterateSetBits(static_cast<offsetType>(-1), [&ans] (offsetType pos) {
       ans.push_back(pos);
     });
     return ans;
@@ -905,8 +904,8 @@ vector<offsetType> EWAHBoolArray<uword>::toArray() const {
 
 
 template<class uword>
-template<typename Function>
-void EWAHBoolArray<uword>::iterateSetBits(Function callable) const {
+void EWAHBoolArray<uword>::iterateSetBits(offsetType limit, std::function<void(offsetType)> callable) const {
+    offsetType yielded = 0;
     offsetType pos(0);
     offsetType pointer(0);
     while (pointer < buffer.size()) {
@@ -914,6 +913,9 @@ void EWAHBoolArray<uword>::iterateSetBits(Function callable) const {
         if (rlw.getRunningBit()) {
             for (offsetType k = 0; k < rlw.getRunningLength() * wordinbits; ++k, ++pos) {
                 callable(pos);
+                if (yielded++ >= limit) {
+                    return;
+                }
             }
         } else {
             pos += static_cast<offsetType>(rlw.getRunningLength() * wordinbits);
@@ -926,6 +928,9 @@ void EWAHBoolArray<uword>::iterateSetBits(Function callable) const {
                 while (myword != 0) {
                   offsetType ntz =  numberOfTrailingZeros (myword);
                   callable(pos + ntz);
+                  if (yielded++ >= limit) {
+                      return;
+                  }
                   myword ^= (static_cast<uword>(1) << ntz);
                 }
                 pos += wordinbits;
@@ -933,6 +938,9 @@ void EWAHBoolArray<uword>::iterateSetBits(Function callable) const {
                 for (int c = 0; c < wordinbits; ++c, ++pos)
                     if ((buffer[pointer] & (static_cast<uword> (1) << c)) != 0) {
                         callable(pos);
+                        if (yielded++ >= limit) {
+                            return;
+                        }
                     }
             }
             ++pointer;
